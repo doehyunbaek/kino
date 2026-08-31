@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Kinoprogramm für Stuttgart – alle Filme und Spielzeiten auf einen Blick." />
+  <title>Stuttgart im Kino</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a href="#" class="brand" aria-label="Startseite">
+      <span class="brand-mark">S</span>
+      <span>STUTTGART<br><b>IM KINO</b></span>
+    </a>
+    <nav>
+      <a href="#programm" class="active">Programm</a>
+      <button id="favoritesNav" class="nav-button">Merkliste <span id="favCount">0</span></button>
+    </nav>
+    <button class="menu" aria-label="Menü">☰</button>
+  </header>
+
+  <main>
+    <section id="programm" class="program-section">
+      <div class="toolbar multi-day-toolbar">
+        <div>
+          <span class="section-kicker">KINOPROGRAMM</span>
+          <h2 id="dateHeading">Die nächsten 14 Tage</h2>
+        </div>
+        <div class="controls">
+          <label class="search"><span>⌕</span><input id="searchInput" placeholder="Film suchen …" /></label>
+          <div id="cinemaToggles" class="cinema-toggles" aria-label="Kinos ein- oder ausblenden"></div>
+          <select id="timeFilter" aria-label="Zeit wählen">
+            <option value="all">Jede Uhrzeit</option><option value="before18">Vor 18 Uhr</option><option value="evening">18–21 Uhr</option><option value="late">Ab 21 Uhr</option>
+          </select>
+          <button id="ovToggle" class="ov-toggle" type="button" aria-pressed="false">OV only</button>
+        </div>
+      </div>
+
+      <div id="status" class="status"><span class="spinner"></span> Programm wird eingesammelt …</div>
+      <div id="movieGrid" class="movie-grid" tabindex="-1"></div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="brand footer-brand"><span class="brand-mark">S</span><span>STUTTGART<br><b>IM KINO</b></span></div>
+    <p>Von Kinofans für Kinofans.<br>Vorstellungszeiten ohne Gewähr.</p>
+    <div><a href="#">Impressum</a><a href="#">Datenschutz</a></div>
+  </footer>
+
+  <template id="movieTemplate">
+    <article class="movie-card">
+      <div class="movie-body">
+        <div class="movie-top"><div><span class="rating"></span><span class="genre"></span></div><div><span class="runtime"></span><button class="favorite" aria-label="Zur Merkliste hinzufügen">♡</button></div></div>
+        <h3></h3>
+        <p class="meta"></p>
+        <div class="shows"></div>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
