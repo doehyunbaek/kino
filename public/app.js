@@ -1,6 +1,25 @@
+import { createWatchlistSync } from './sync.js';
+
 const $ = selector => document.querySelector(selector);
-const state = { data: null, date: today(), favorites: new Set(JSON.parse(localStorage.getItem('kino-favorites') || '[]')), selectedCinemas: new Set(), favoritesOnly: false, ovOnly: localStorage.getItem('kino-ov-only') === 'true', focusedMovie: null, sortBy: null, sortDirection: 'desc' };
+const savedCatalogItems = JSON.parse(localStorage.getItem('tmdb-favorites') || '[]');
+const state = { data: null, date: today(), favorites: new Set(JSON.parse(localStorage.getItem('kino-favorites') || '[]')), catalogFavorites: new Map(savedCatalogItems.map(item => [`${item.mediaType}:${item.id}`, item])), selectedCinemas: new Set(), favoritesOnly: false, ovOnly: localStorage.getItem('kino-ov-only') === 'true', focusedMovie: null, sortBy: null, sortDirection: 'desc' };
 const weekdays = ['SO','MO','DI','MI','DO','FR','SA'];
+const watchlistSync = createWatchlistSync({
+  getItems: () => [...state.catalogFavorites.values()],
+  applyItems: items => {
+    state.catalogFavorites = new Map(items.map(item => [`${item.mediaType}:${item.id}`, item]));
+    localStorage.setItem('tmdb-favorites', JSON.stringify(items));
+    updateFavCount();
+    if (!$('#favorites').hidden) showCatalogFavorites();
+  },
+  onStatus: ({ configured, signedIn, busy, message }) => {
+    const avatar = $('#accountAvatar');
+    avatar.disabled = !configured || busy;
+    avatar.classList.toggle('connected', signedIn);
+    avatar.setAttribute('aria-label', signedIn ? 'Von Cloud-Synchronisierung abmelden' : configured ? 'Mit Google anmelden' : 'Cloud-Synchronisierung nicht verfügbar');
+    $('#syncStatus').textContent = message;
+  }
+});
 
 function today(offset = 0) {
   const d = new Date(); d.setDate(d.getDate() + offset);
@@ -110,7 +129,116 @@ function toggleFavorite(id) {
   state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id);
   localStorage.setItem('kino-favorites', JSON.stringify([...state.favorites])); updateFavCount(); renderMovies();
 }
-function updateFavCount() { $('#favCount').textContent = state.favorites.size; }
+function updateFavCount() { $('#favCount').textContent = state.catalogFavorites.size; }
+
+function year(value = '') { return value.slice(0, 4) || '—'; }
+function catalogFavoriteKey(item) { return `${item.mediaType}:${item.id}`; }
+function catalogCard(item) {
+  const person = item.mediaType === 'person';
+  const title = person ? item.name : item.title;
+  const saved = !person && state.catalogFavorites.has(catalogFavoriteKey(item));
+  const meta = person ? [item.department, item.knownFor?.map(work => work.title).slice(0, 3).join(' · ')].filter(Boolean).join(' — ') : `${item.mediaType === 'tv' ? 'Serie' : 'Film'} · ${year(item.date)}${item.originalTitle && item.originalTitle !== item.title ? ` · ${item.originalTitle}` : ''}`;
+  return `<article class="catalog-card ${person ? 'person' : ''}">
+    <div class="catalog-image">${item.image ? `<img src="${escapeHtml(safeUrl(item.image))}" alt="" loading="lazy">` : `<span>${escapeHtml(title?.charAt(0) || '?')}</span>`}</div>
+    <div><div class="catalog-title-row"><span class="catalog-type">${person ? 'Person' : item.mediaType === 'tv' ? 'Serie' : 'Film'}</span>${person ? '' : `<button class="catalog-favorite ${saved ? 'active' : ''}" data-favorite="${escapeHtml(catalogFavoriteKey(item))}" aria-label="${saved ? 'Aus Merkliste entfernen' : 'Zur Merkliste hinzufügen'}" aria-pressed="${saved}">${saved ? '♥' : '♡'}</button>`}</div><h3>${escapeHtml(title)}</h3><p class="catalog-meta">${escapeHtml(meta)}</p>${!person && item.overview ? `<p class="catalog-overview">${escapeHtml(item.overview)}</p>` : ''}<div class="catalog-actions">${person ? `<button class="credits-button" data-person="${item.id}">Alle Werke</button>` : ''}<a href="${escapeHtml(safeUrl(item.tmdbUrl))}" target="_blank" rel="noopener">Auf TMDB ↗</a></div></div>
+  </article>`;
+}
+
+function bindCatalogButtons(items) {
+  document.querySelectorAll('.credits-button').forEach(button => button.onclick = () => loadCredits(button.dataset.person, button));
+  document.querySelectorAll('.catalog-favorite').forEach(button => button.onclick = () => {
+    const item = items.find(candidate => catalogFavoriteKey(candidate) === button.dataset.favorite);
+    if (!item) return;
+    const key = catalogFavoriteKey(item);
+    state.catalogFavorites.has(key) ? state.catalogFavorites.delete(key) : state.catalogFavorites.set(key, item);
+    localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
+    watchlistSync.localChanged();
+    updateFavCount();
+    button.classList.toggle('active', state.catalogFavorites.has(key));
+    button.textContent = state.catalogFavorites.has(key) ? '♥' : '♡';
+    button.setAttribute('aria-pressed', String(state.catalogFavorites.has(key)));
+    button.setAttribute('aria-label', state.catalogFavorites.has(key) ? 'Aus Merkliste entfernen' : 'Zur Merkliste hinzufügen');
+  });
+}
+
+function showCatalogFavorites() {
+  const items = [...state.catalogFavorites.values()].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  $('#favoritesStatus').textContent = items.length ? `${items.length} gespeicherte Titel` : 'Noch keine Filme oder Serien gespeichert.';
+  const results = $('#favoritesResults');
+  results.innerHTML = items.length ? `<div class="saved-table" role="table" aria-label="Gespeicherte Filme und Serien">
+    <div class="saved-table-head" role="row"><span>Cover</span><span>Titel</span><span>Typ</span><span>Jahr</span><span>TMDB</span><span>Urteil</span><span></span></div>
+    ${items.map(item => `<article class="saved-table-row" role="row">
+      <div class="saved-cover" role="cell">${item.image ? `<img src="${escapeHtml(safeUrl(item.image))}" alt="" loading="lazy">` : '<span>—</span>'}</div>
+      <div class="saved-title" role="cell"><a href="${escapeHtml(safeUrl(item.tmdbUrl))}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a>${item.originalTitle && item.originalTitle !== item.title ? `<small>${escapeHtml(item.originalTitle)}</small>` : ''}</div>
+      <span role="cell">${item.mediaType === 'tv' ? 'Serie' : 'Film'}</span>
+      <span role="cell">${escapeHtml(year(item.date))}</span>
+      <span role="cell">${item.voteAverage ? `★ ${Number(item.voteAverage).toFixed(1)}` : '—'}</span>
+      <div class="verdict-options" role="group" aria-label="Urteil für ${escapeHtml(item.title)}">${[['R', 'Reject'], ['WR', 'Weak reject'], ['WA', 'Weak accept'], ['A', 'Accept']].filter(([value]) => !item.verdict || item.verdict === value).map(([value, label]) => `<button type="button" data-verdict="${value}" data-item="${escapeHtml(catalogFavoriteKey(item))}" class="verdict-button verdict-${value.toLowerCase()} ${item.verdict === value ? 'active' : ''}" aria-label="${item.verdict === value ? `${label} aufheben` : label}" title="${item.verdict === value ? `${label} – klicken zum Ändern` : label}" aria-pressed="${item.verdict === value}">${value}</button>`).join('')}</div>
+      <button class="saved-remove" data-remove="${escapeHtml(catalogFavoriteKey(item))}" aria-label="${escapeHtml(item.title)} aus Merkliste entfernen">♥</button>
+    </article>`).join('')}
+  </div>` : '<div class="saved-empty">Speichere Titel im TMDB-Katalog über das Herz.</div>';
+  document.querySelectorAll('.verdict-button').forEach(button => button.onclick = () => {
+    const item = state.catalogFavorites.get(button.dataset.item);
+    if (!item) return;
+    if (item.verdict === button.dataset.verdict) delete item.verdict;
+    else item.verdict = button.dataset.verdict;
+    localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
+    watchlistSync.localChanged();
+    showCatalogFavorites();
+  });
+  document.querySelectorAll('.saved-remove').forEach(button => button.onclick = () => {
+    state.catalogFavorites.delete(button.dataset.remove);
+    localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
+    watchlistSync.localChanged();
+    updateFavCount();
+    showCatalogFavorites();
+  });
+}
+
+async function loadCredits(id, button) {
+  const container = $('#catalogResults');
+  button.disabled = true;
+  button.textContent = 'Lädt …';
+  try {
+    const response = await fetch(`/api/catalog/person/${id}/credits`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Filmografie konnte nicht geladen werden.');
+    $('#catalogStatus').textContent = `${data.person.name}: ${data.works.length} Film- und Fernsehwerke`;
+    container.innerHTML = `<div class="person-detail"><button id="catalogBack" type="button">← Suchergebnisse</button><div>${data.person.image ? `<img src="${escapeHtml(safeUrl(data.person.image))}" alt="">` : ''}<span class="section-kicker">FILMOGRAFIE</span><h2>${escapeHtml(data.person.name)}</h2>${data.person.biography ? `<p>${escapeHtml(data.person.biography)}</p>` : ''}</div></div><div class="credits-list">${data.works.map(work => `<article><span>${escapeHtml(year(work.date))}</span><div><h3><a href="${escapeHtml(safeUrl(work.tmdbUrl))}" target="_blank" rel="noopener">${escapeHtml(work.title)}</a></h3><p>${escapeHtml(work.roles.join(' · ') || (work.mediaType === 'tv' ? 'Serie' : 'Film'))}</p></div></article>`).join('')}</div>`;
+    $('#catalogBack').onclick = () => runCatalogSearch();
+  } catch (error) {
+    $('#catalogStatus').textContent = error.message;
+    button.disabled = false;
+    button.textContent = 'Alle Werke';
+  }
+}
+
+async function runCatalogSearch() {
+  const query = $('#catalogInput').value.trim();
+  if (query.length < 2) return;
+  const status = $('#catalogStatus');
+  status.innerHTML = '<span class="spinner"></span> TMDB wird durchsucht …';
+  $('#catalogResults').classList.remove('saved-table-view');
+  $('#catalogResults').innerHTML = '';
+  try {
+    const response = await fetch(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Suche fehlgeschlagen.');
+    status.textContent = data.results.length ? `${data.results.length} Ergebnisse für „${query}“` : `Keine Ergebnisse für „${query}“`;
+    $('#catalogResults').innerHTML = data.results.map(catalogCard).join('');
+    bindCatalogButtons(data.results);
+  } catch (error) { status.textContent = error.message; }
+}
+
+function showView(view) {
+  $('#programm').hidden = view !== 'program';
+  $('#catalog').hidden = view !== 'catalog';
+  $('#favorites').hidden = view !== 'favorites';
+  $('#programNav').classList.toggle('active', view === 'program');
+  $('#catalogNav').classList.toggle('active', view === 'catalog');
+  $('#favoritesNav').classList.toggle('active', view === 'favorites');
+  if (view === 'catalog') setTimeout(() => $('#catalogInput').focus(), 0);
+}
 
 function renderCinemas() {
   state.selectedCinemas = new Set(state.data.cinemas.map(cinema => cinema.id));
@@ -126,6 +254,7 @@ function renderCinemas() {
 
 async function init() {
   updateFavCount();
+  watchlistSync.init();
   $('#ovToggle').classList.toggle('active', state.ovOnly);
   $('#ovToggle').setAttribute('aria-pressed', String(state.ovOnly));
   try {
@@ -149,7 +278,11 @@ $('#ovToggle').onclick = event => {
   event.currentTarget.setAttribute('aria-pressed', String(state.ovOnly));
   renderMovies();
 };
-$('#favoritesNav').onclick = () => { state.favoritesOnly = !state.favoritesOnly; renderMovies(); location.hash = 'programm'; };
+$('#programNav').onclick = () => showView('program');
+$('#catalogNav').onclick = () => showView('catalog');
+$('#catalogSearch').addEventListener('submit', event => { event.preventDefault(); runCatalogSearch(); });
+$('#accountAvatar').onclick = watchlistSync.toggleAuth;
+$('#favoritesNav').onclick = () => { showView('favorites'); showCatalogFavorites(); };
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && state.focusedMovie) {
     state.focusedMovie = null;

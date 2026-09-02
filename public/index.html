@@ -17,8 +17,10 @@
       <span>STUTTGART<br><b>IM KINO</b></span>
     </a>
     <nav>
-      <a href="#programm" class="active">Programm</a>
+      <button id="programNav" class="nav-button active">Programm</button>
+      <button id="catalogNav" class="nav-button">TMDB-Katalog</button>
       <button id="favoritesNav" class="nav-button">Merkliste <span id="favCount">0</span></button>
+      <button id="accountAvatar" class="account-avatar" type="button" aria-label="Konto und Cloud-Synchronisierung"><span aria-hidden="true"></span></button>
     </nav>
     <button class="menu" aria-label="Menü">☰</button>
   </header>
@@ -44,6 +46,33 @@
       <div id="movieGrid" class="movie-grid" tabindex="-1"></div>
     </section>
 
+    <section id="catalog" class="catalog-section" hidden>
+      <div class="catalog-heading">
+        <span class="section-kicker">TMDB-KATALOG</span>
+        <h2>Filme, Serien &amp; Filmschaffende</h2>
+        <p>Durchsuche den internationalen Katalog oder öffne die vollständige Filmografie einer Person.</p>
+      </div>
+      <form id="catalogSearch" class="catalog-search" role="search">
+        <label><span>⌕</span><input id="catalogInput" type="search" minlength="2" placeholder="z. B. Quentin Tarantino oder Kill Bill" required /></label>
+        <button type="submit">Suchen</button>
+      </form>
+      <div id="catalogStatus" class="catalog-status">Gib einen Film, eine Serie oder einen Namen ein.</div>
+      <div id="catalogResults" class="catalog-results"></div>
+    </section>
+
+    <section id="favorites" class="catalog-section" hidden>
+      <div class="catalog-heading">
+        <span class="section-kicker">MERKLISTE</span>
+        <h2>Gespeicherte Filme &amp; Serien</h2>
+        <p>Deine gespeicherten TMDB-Titel auf einen Blick.</p>
+      </div>
+      <div class="sync-panel">
+        <div><strong>Cloud-Synchronisierung</strong><span id="syncStatus">Nur auf diesem Gerät</span></div>
+      </div>
+      <div id="favoritesStatus" class="catalog-status"></div>
+      <div id="favoritesResults" class="catalog-results saved-table-view"></div>
+    </section>
+
   </main>
 
   <footer>
@@ -63,6 +92,10 @@
     </article>
   </template>
 
+  <script src="/firebase-config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

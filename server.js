@@ -4,6 +4,7 @@ import * as cheerio from 'cheerio';
 const app = express();
 const PORT = process.env.PORT || 3000;
 const CACHE_MS = 20 * 60 * 1000;
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
 const cinemas = [
   { id: 'innenstadtkinos', name: 'Innenstadtkinos', address: 'Königstraße 22, 70173 Stuttgart', url: 'https://www.innenstadtkinos.de/', accent: '#ec5a39' },
@@ -212,6 +213,94 @@ async function getCachedShowings() {
   }
   return refreshPromise;
 }
+
+function tmdbOptions() {
+  const token = process.env.TMDB_API_TOKEN;
+  return token ? { headers: { authorization: `Bearer ${token}`, accept: 'application/json' } } : { headers: { accept: 'application/json' } };
+}
+
+async function tmdbFetch(path, parameters = {}) {
+  const apiKey = process.env.TMDB_API_KEY;
+  if (!process.env.TMDB_API_TOKEN && !apiKey) {
+    const error = new Error('TMDB is not configured. Set TMDB_API_TOKEN or TMDB_API_KEY.');
+    error.status = 503;
+    throw error;
+  }
+  const url = new URL(`${TMDB_BASE_URL}${path}`);
+  url.search = new URLSearchParams({ language: process.env.TMDB_LANGUAGE || 'en-US', ...parameters, ...(apiKey ? { api_key: apiKey } : {}) });
+  const response = await fetch(url, { ...tmdbOptions(), signal: AbortSignal.timeout(10000) });
+  if (!response.ok) {
+    const error = new Error(`TMDB HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+function tmdbImage(path, size = 'w342') {
+  return path ? `https://image.tmdb.org/t/p/${size}${path}` : '';
+}
+
+function normalizeTmdbTitle(item) {
+  const mediaType = item.media_type || (item.title ? 'movie' : 'tv');
+  return {
+    id: item.id,
+    mediaType,
+    title: item.title || item.name || '',
+    originalTitle: item.original_title || item.original_name || '',
+    date: item.release_date || item.first_air_date || '',
+    overview: item.overview || '',
+    image: tmdbImage(item.poster_path),
+    popularity: item.popularity || 0,
+    voteAverage: item.vote_average || 0,
+    tmdbUrl: `https://www.themoviedb.org/${mediaType}/${item.id}`
+  };
+}
+
+app.get('/api/catalog/search', async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (query.length < 2) return res.status(400).json({ error: 'Enter at least two characters.' });
+  try {
+    const data = await tmdbFetch('/search/multi', { query, include_adult: 'false', page: '1' });
+    const results = data.results.slice(0, 20).map(item => item.media_type === 'person' ? {
+      id: item.id,
+      mediaType: 'person',
+      name: item.name,
+      department: item.known_for_department || '',
+      image: tmdbImage(item.profile_path),
+      knownFor: (item.known_for || []).map(normalizeTmdbTitle),
+      popularity: item.popularity || 0,
+      tmdbUrl: `https://www.themoviedb.org/person/${item.id}`
+    } : normalizeTmdbTitle(item));
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ query, results });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message });
+  }
+});
+
+app.get('/api/catalog/person/:id/credits', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid person ID.' });
+  try {
+    const [person, credits] = await Promise.all([
+      tmdbFetch(`/person/${req.params.id}`),
+      tmdbFetch(`/person/${req.params.id}/combined_credits`)
+    ]);
+    const works = new Map();
+    for (const credit of [...(credits.cast || []), ...(credits.crew || [])]) {
+      if (!['movie', 'tv'].includes(credit.media_type)) continue;
+      const key = `${credit.media_type}:${credit.id}`;
+      if (!works.has(key)) works.set(key, { ...normalizeTmdbTitle(credit), roles: [] });
+      const role = credit.character ? `Cast: ${credit.character}` : credit.job || credit.department;
+      if (role && !works.get(key).roles.includes(role)) works.get(key).roles.push(role);
+    }
+    const sortedWorks = [...works.values()].sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.popularity - a.popularity);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ person: { id: person.id, name: person.name, biography: person.biography || '', image: tmdbImage(person.profile_path), tmdbUrl: `https://www.themoviedb.org/person/${person.id}` }, works: sortedWorks });
+  } catch (error) {
+    res.status(error.status || 502).json({ error: error.message });
+  }
+});
 
 app.get('/api/showings', async (_req, res) => {
   try {
