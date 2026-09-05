@@ -35,9 +35,12 @@
         <div class="controls">
           <label class="search"><span>⌕</span><input id="searchInput" placeholder="Film suchen …" /></label>
           <div id="cinemaToggles" class="cinema-toggles" aria-label="Kinos ein- oder ausblenden"></div>
-          <select id="timeFilter" aria-label="Zeit wählen">
-            <option value="all">Jede Uhrzeit</option><option value="before18">Vor 18 Uhr</option><option value="evening">18–21 Uhr</option><option value="late">Ab 21 Uhr</option>
-          </select>
+          <div class="time-filter">
+            <select id="timeFilter" aria-label="Zeit wählen">
+              <option value="all">Jede Uhrzeit</option><option value="before18">Vor 18 Uhr</option><option value="evening">18–21 Uhr</option><option value="late">Ab 21 Uhr</option><option value="exact">Ab Uhrzeit …</option>
+            </select>
+            <input id="exactTimeFilter" type="text" inputmode="numeric" value="16:00" placeholder="HH:MM" maxlength="5" pattern="(?:[01]\d|2[0-3]):[0-5]\d" aria-label="Vorstellungen ab dieser Uhrzeit im 24-Stunden-Format" title="Uhrzeit im 24-Stunden-Format, zum Beispiel 16:00" hidden />
+          </div>
           <button id="ovToggle" class="ov-toggle" type="button" aria-pressed="false">OV only</button>
         </div>
       </div>

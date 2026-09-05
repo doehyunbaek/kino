@@ -47,26 +47,38 @@ function versionTitle(show) {
   return parts.join(', ');
 }
 
+function minutesFromTime(value) {
+  const match = String(value).trim().match(/^(\d{1,2}):([0-5]\d)$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  return hours < 24 ? hours * 60 + Number(match[2]) : null;
+}
+
+function timeMatchesFilter(time) {
+  const period = $('#timeFilter').value;
+  const minutes = minutesFromTime(time);
+  const exactMinutes = minutesFromTime($('#exactTimeFilter').value);
+  if (minutes == null) return false;
+  return period === 'all' ||
+    period === 'before18' && minutes < 18 * 60 ||
+    period === 'evening' && minutes >= 18 * 60 && minutes < 21 * 60 ||
+    period === 'late' && minutes >= 21 * 60 ||
+    period === 'exact' && exactMinutes != null && minutes >= exactMinutes;
+}
+
 function filteredFilms(date) {
   const query = $('#searchInput').value.trim().toLocaleLowerCase('de');
-  const period = $('#timeFilter').value;
   return state.data.films.filter(film => {
     if (film.date !== date || !film.title.toLocaleLowerCase('de').includes(query)) return false;
     if (state.favoritesOnly && !state.favorites.has(film.id)) return false;
     return film.shows.some(show => {
-      const hour = Number(show.time.slice(0, 2));
-      const timeMatches = period === 'all' || (period === 'before18' && hour < 18) || (period === 'evening' && hour >= 18 && hour < 21) || (period === 'late' && hour >= 21);
-      return state.selectedCinemas.has(show.cinemaId) && timeMatches && (!state.ovOnly || show.isOriginalLanguage);
+      return state.selectedCinemas.has(show.cinemaId) && timeMatchesFilter(show.time) && (!state.ovOnly || show.isOriginalLanguage);
     });
   });
 }
 
 function visibleShows(film) {
-  const period = $('#timeFilter').value;
-  return film.shows.filter(show => {
-    const hour = Number(show.time.slice(0,2));
-    return state.selectedCinemas.has(show.cinemaId) && (!state.ovOnly || show.isOriginalLanguage) && (period === 'all' || period === 'before18' && hour < 18 || period === 'evening' && hour >= 18 && hour < 21 || period === 'late' && hour >= 21);
-  });
+  return film.shows.filter(show => state.selectedCinemas.has(show.cinemaId) && (!state.ovOnly || show.isOriginalLanguage) && timeMatchesFilter(show.time));
 }
 
 function renderDayShows(film) {
@@ -270,7 +282,19 @@ async function init() {
 }
 
 $('#searchInput').addEventListener('input', renderMovies);
-$('#timeFilter').addEventListener('change', renderMovies);
+$('#timeFilter').addEventListener('change', event => {
+  $('#exactTimeFilter').hidden = event.currentTarget.value !== 'exact';
+  if (event.currentTarget.value === 'exact') $('#exactTimeFilter').focus();
+  renderMovies();
+});
+$('#exactTimeFilter').addEventListener('input', event => {
+  const input = event.currentTarget;
+  let digits = input.value.replace(/\D/g, '').slice(0, 4);
+  if (digits.length >= 3) digits = `${digits.slice(0, 2)}:${digits.slice(2)}`;
+  input.value = digits;
+  input.setCustomValidity(minutesFromTime(digits) == null ? 'Bitte eine Uhrzeit im 24-Stunden-Format eingeben, z. B. 16:00.' : '');
+  renderMovies();
+});
 $('#ovToggle').onclick = event => {
   state.ovOnly = !state.ovOnly;
   localStorage.setItem('kino-ov-only', String(state.ovOnly));
