@@ -2,7 +2,7 @@ import { createWatchlistSync } from './sync.js';
 
 const $ = selector => document.querySelector(selector);
 const savedCatalogItems = JSON.parse(localStorage.getItem('tmdb-favorites') || '[]');
-const state = { data: null, date: today(), favorites: new Set(JSON.parse(localStorage.getItem('kino-favorites') || '[]')), catalogFavorites: new Map(savedCatalogItems.map(item => [`${item.mediaType}:${item.id}`, item])), selectedCinemas: new Set(), favoritesOnly: false, ovOnly: localStorage.getItem('kino-ov-only') === 'true', focusedMovie: null, sortBy: null, sortDirection: 'desc' };
+const state = { data: null, date: today(), favorites: new Set(JSON.parse(localStorage.getItem('kino-favorites') || '[]')), catalogFavorites: new Map(savedCatalogItems.map(item => [`${item.mediaType}:${item.id}`, item])), selectedCinemas: new Set(), favoritesOnly: false, ovOnly: localStorage.getItem('kino-ov-only') === 'true', focusedMovie: null, sortBy: null, sortDirection: 'desc', favoritesSortBy: 'title', favoritesSortDirection: 'asc' };
 const weekdays = ['SO','MO','DI','MI','DO','FR','SA'];
 const watchlistSync = createWatchlistSync({
   getItems: () => [...state.catalogFavorites.values()],
@@ -10,6 +10,7 @@ const watchlistSync = createWatchlistSync({
     state.catalogFavorites = new Map(items.map(item => [`${item.mediaType}:${item.id}`, item]));
     localStorage.setItem('tmdb-favorites', JSON.stringify(items));
     updateFavCount();
+    if (state.data) renderMovies();
     if (!$('#favorites').hidden) showCatalogFavorites();
   },
   onStatus: ({ configured, signedIn, busy, message }) => {
@@ -66,11 +67,26 @@ function timeMatchesFilter(time) {
     period === 'exact' && exactMinutes != null && minutes >= exactMinutes;
 }
 
+function normalizedTitle(value = '') {
+  return value.trim().toLocaleLowerCase('de').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function catalogFavoriteForFilm(film) {
+  const title = normalizedTitle(film.title);
+  return [...state.catalogFavorites.values()].find(item =>
+    item.mediaType === 'movie' && [item.programTitle, item.title, item.originalTitle].some(value => normalizedTitle(value) === title)
+  );
+}
+
+function isFilmMarked(film) {
+  return state.favorites.has(film.id) || Boolean(catalogFavoriteForFilm(film));
+}
+
 function filteredFilms(date) {
   const query = $('#searchInput').value.trim().toLocaleLowerCase('de');
   return state.data.films.filter(film => {
     if (film.date !== date || !film.title.toLocaleLowerCase('de').includes(query)) return false;
-    if (state.favoritesOnly && !state.favorites.has(film.id)) return false;
+    if (state.favoritesOnly && !isFilmMarked(film)) return false;
     return film.shows.some(show => {
       return state.selectedCinemas.has(show.cinemaId) && timeMatchesFilter(show.time) && (!state.ovOnly || show.isOriginalLanguage);
     });
@@ -102,6 +118,8 @@ function renderMovies() {
     ? visibleShows(entry.days.get(date) || { shows: [] }).length
     : [...entry.days.values()].reduce((sum, film) => sum + visibleShows(film).length, 0);
   const entries = focused ? [focused] : [...grouped.values()].sort((a, b) => {
+    const favoriteDifference = Number(isFilmMarked(b.representative)) - Number(isFilmMarked(a.representative));
+    if (favoriteDifference) return favoriteDifference;
     if (!state.sortBy) return a.representative.title.localeCompare(b.representative.title, 'de');
     const difference = showingCount(a, state.sortBy === 'total' ? null : state.sortBy) - showingCount(b, state.sortBy === 'total' ? null : state.sortBy);
     return (state.sortDirection === 'asc' ? difference : -difference) || a.representative.title.localeCompare(b.representative.title, 'de');
@@ -127,23 +145,60 @@ function renderMovies() {
     row.setAttribute('aria-label', `${film.title} fokussieren`);
     row.style.animationDelay = `${Math.min(index * 15, 180)}ms`;
     const total = [...days.values()].reduce((sum, dayFilm) => sum + visibleShows(dayFilm).length, 0);
-    row.innerHTML = `<div class="movie-summary"><div class="movie-summary-top"><span class="rating">${escapeHtml(film.rating || 'FILM')}</span><button class="favorite ${state.favorites.has(film.id) ? 'active' : ''}" aria-label="Zur Merkliste hinzufügen">${state.favorites.has(film.id) ? '♥' : '♡'}</button></div><h3>${escapeHtml(film.title)}</h3><p>${escapeHtml(film.genre)}${film.duration ? ` · ${escapeHtml(film.duration)}` : ''}</p><small>${total} Vorstellungen${focused ? ' · Esc zum Schließen' : ' · Zeile fokussieren'}</small></div>${dates.map(date => `<div class="day-cell">${renderDayShows(days.get(date))}</div>`).join('')}`;
+    const marked = isFilmMarked(film);
+    row.innerHTML = `<div class="movie-summary"><div class="movie-summary-top"><span class="rating">${escapeHtml(film.rating || 'FILM')}</span><button class="favorite ${marked ? 'active' : ''}" aria-label="${marked ? 'Markierung entfernen' : 'Film markieren'}" title="${marked ? 'Markierung entfernen' : 'Film markieren, in der Merkliste speichern und oben anzeigen'}" aria-pressed="${marked}">${marked ? '♥' : '♡'}</button></div><h3>${escapeHtml(film.title)}</h3><p>${escapeHtml(film.genre)}${film.duration ? ` · ${escapeHtml(film.duration)}` : ''}</p><small>${total} Vorstellungen${focused ? ' · Esc zum Schließen' : ' · Zeile fokussieren'}</small></div>${dates.map(date => `<div class="day-cell">${renderDayShows(days.get(date))}</div>`).join('')}`;
     const focusRow = () => { if (state.focusedMovie !== key) { state.focusedMovie = key; renderMovies(); $('#movieGrid .schedule-row')?.focus(); } };
     row.addEventListener('click', event => { if (!event.target.closest('a, button')) focusRow(); });
     row.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusRow(); } });
-    row.querySelector('.favorite').onclick = () => toggleFavorite(film.id);
+    row.querySelector('.favorite').onclick = event => toggleFavorite(film, event.currentTarget);
     rows.appendChild(row);
   });
   if (!grouped.size) rows.innerHTML = `<div class="schedule-empty">${state.data.available ? 'Keine Vorstellungen für diese Filter gefunden.' : 'Live-Daten nicht verfügbar.'}</div>`;
 }
 
-function toggleFavorite(id) {
-  state.favorites.has(id) ? state.favorites.delete(id) : state.favorites.add(id);
-  localStorage.setItem('kino-favorites', JSON.stringify([...state.favorites])); updateFavCount(); renderMovies();
+async function toggleFavorite(film, button) {
+  const catalogItem = catalogFavoriteForFilm(film);
+  if (catalogItem || state.favorites.has(film.id)) {
+    if (catalogItem) state.catalogFavorites.delete(catalogFavoriteKey(catalogItem));
+    state.favorites.delete(film.id);
+  } else {
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/catalog/search?q=${encodeURIComponent(film.title)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'TMDB-Suche fehlgeschlagen.');
+      const title = normalizedTitle(film.title);
+      const movies = data.results.filter(item => item.mediaType === 'movie');
+      const item = movies.find(candidate => [candidate.title, candidate.originalTitle].some(value => normalizedTitle(value) === title)) || movies[0];
+      if (!item) throw new Error('Kein passender TMDB-Film gefunden.');
+      item.programTitle = film.title;
+      item.watchedAt = today();
+      state.catalogFavorites.set(catalogFavoriteKey(item), item);
+      state.favorites.delete(film.id);
+    } catch (error) {
+      state.favorites.add(film.id);
+      console.warn(`„${film.title}“ konnte nicht mit der Merkliste synchronisiert werden:`, error);
+    }
+  }
+  localStorage.setItem('kino-favorites', JSON.stringify([...state.favorites]));
+  localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
+  watchlistSync.localChanged();
+  updateFavCount();
+  renderMovies();
 }
 function updateFavCount() { $('#favCount').textContent = state.catalogFavorites.size; }
 
 function year(value = '') { return value.slice(0, 4) || '—'; }
+function fullDate(value = '') {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}/${match[2]}/${match[3]}` : value || '—';
+}
+function isValidDate(value) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
+}
 function catalogFavoriteKey(item) { return `${item.mediaType}:${item.id}`; }
 function catalogCard(item) {
   const person = item.mediaType === 'person';
@@ -162,7 +217,11 @@ function bindCatalogButtons(items) {
     const item = items.find(candidate => catalogFavoriteKey(candidate) === button.dataset.favorite);
     if (!item) return;
     const key = catalogFavoriteKey(item);
-    state.catalogFavorites.has(key) ? state.catalogFavorites.delete(key) : state.catalogFavorites.set(key, item);
+    if (state.catalogFavorites.has(key)) state.catalogFavorites.delete(key);
+    else {
+      item.watchedAt = today();
+      state.catalogFavorites.set(key, item);
+    }
     localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
     watchlistSync.localChanged();
     updateFavCount();
@@ -174,21 +233,58 @@ function bindCatalogButtons(items) {
 }
 
 function showCatalogFavorites() {
-  const items = [...state.catalogFavorites.values()].sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  const sortValues = {
+    title: item => item.title || '',
+    type: item => item.mediaType || '',
+    date: item => item.date || '',
+    watched: item => item.watchedAt || '',
+    rating: item => Number(item.voteAverage) || 0,
+    verdict: item => ({ R: 1, WR: 2, WA: 3, A: 4 })[item.verdict] || 0
+  };
+  const direction = state.favoritesSortDirection === 'asc' ? 1 : -1;
+  const items = [...state.catalogFavorites.values()].sort((a, b) => {
+    const aValue = sortValues[state.favoritesSortBy](a);
+    const bValue = sortValues[state.favoritesSortBy](b);
+    const difference = typeof aValue === 'number' ? aValue - bValue : String(aValue).localeCompare(String(bValue), 'de');
+    return direction * difference || a.title.localeCompare(b.title, 'de');
+  });
+  const sortHeader = (key, label) => `<button type="button" data-saved-sort="${key}" aria-label="${label} sortieren">${label}${state.favoritesSortBy === key ? `<i>${state.favoritesSortDirection === 'asc' ? '↑' : '↓'}</i>` : ''}</button>`;
   $('#favoritesStatus').textContent = items.length ? `${items.length} gespeicherte Titel` : 'Noch keine Filme oder Serien gespeichert.';
   const results = $('#favoritesResults');
   results.innerHTML = items.length ? `<div class="saved-table" role="table" aria-label="Gespeicherte Filme und Serien">
-    <div class="saved-table-head" role="row"><span>Cover</span><span>Titel</span><span>Typ</span><span>Jahr</span><span>TMDB</span><span>Urteil</span><span></span></div>
+    <div class="saved-table-head" role="row"><span>Cover</span>${sortHeader('title', 'Titel')}${sortHeader('type', 'Typ')}${sortHeader('date', 'Datum')}${sortHeader('watched', 'Gesehen am')}${sortHeader('rating', 'TMDB')}${sortHeader('verdict', 'Urteil')}<span></span></div>
     ${items.map(item => `<article class="saved-table-row" role="row">
       <div class="saved-cover" role="cell">${item.image ? `<img src="${escapeHtml(safeUrl(item.image))}" alt="" loading="lazy">` : '<span>—</span>'}</div>
       <div class="saved-title" role="cell"><a href="${escapeHtml(safeUrl(item.tmdbUrl))}" target="_blank" rel="noopener">${escapeHtml(item.title)}</a>${item.originalTitle && item.originalTitle !== item.title ? `<small>${escapeHtml(item.originalTitle)}</small>` : ''}</div>
       <span role="cell">${item.mediaType === 'tv' ? 'Serie' : 'Film'}</span>
-      <span role="cell">${escapeHtml(year(item.date))}</span>
+      <span role="cell">${escapeHtml(fullDate(item.date))}</span>
+      <label class="watched-date" role="cell"><span class="sr-only">Gesehen am für ${escapeHtml(item.title)}</span><input type="text" inputmode="numeric" data-watched="${escapeHtml(catalogFavoriteKey(item))}" value="${escapeHtml(item.watchedAt ? fullDate(item.watchedAt) : '')}" placeholder="YYYY/MM/DD" pattern="[0-9]{4}/[0-9]{2}/[0-9]{2}" maxlength="10" aria-label="Gesehen am für ${escapeHtml(item.title)} im Format YYYY/MM/DD"></label>
       <span role="cell">${item.voteAverage ? `★ ${Number(item.voteAverage).toFixed(1)}` : '—'}</span>
       <div class="verdict-options" role="group" aria-label="Urteil für ${escapeHtml(item.title)}">${[['R', 'Reject'], ['WR', 'Weak reject'], ['WA', 'Weak accept'], ['A', 'Accept']].filter(([value]) => !item.verdict || item.verdict === value).map(([value, label]) => `<button type="button" data-verdict="${value}" data-item="${escapeHtml(catalogFavoriteKey(item))}" class="verdict-button verdict-${value.toLowerCase()} ${item.verdict === value ? 'active' : ''}" aria-label="${item.verdict === value ? `${label} aufheben` : label}" title="${item.verdict === value ? `${label} – klicken zum Ändern` : label}" aria-pressed="${item.verdict === value}">${value}</button>`).join('')}</div>
       <button class="saved-remove" data-remove="${escapeHtml(catalogFavoriteKey(item))}" aria-label="${escapeHtml(item.title)} aus Merkliste entfernen">♥</button>
     </article>`).join('')}
   </div>` : '<div class="saved-empty">Speichere Titel im TMDB-Katalog über das Herz.</div>';
+  document.querySelectorAll('[data-saved-sort]').forEach(button => button.onclick = () => {
+    const key = button.dataset.savedSort;
+    if (state.favoritesSortBy === key) state.favoritesSortDirection = state.favoritesSortDirection === 'asc' ? 'desc' : 'asc';
+    else {
+      state.favoritesSortBy = key;
+      state.favoritesSortDirection = key === 'title' || key === 'type' ? 'asc' : 'desc';
+    }
+    showCatalogFavorites();
+  });
+  document.querySelectorAll('[data-watched]').forEach(input => input.onchange = () => {
+    const item = state.catalogFavorites.get(input.dataset.watched);
+    if (!item) return;
+    const date = input.value.trim().replaceAll('/', '-');
+    const valid = isValidDate(date);
+    input.setCustomValidity(valid || !input.value ? '' : 'Bitte ein gültiges Datum im Format YYYY/MM/DD eingeben.');
+    if (!valid) return input.reportValidity();
+    item.watchedAt = date;
+    localStorage.setItem('tmdb-favorites', JSON.stringify([...state.catalogFavorites.values()]));
+    watchlistSync.localChanged();
+    if (state.favoritesSortBy === 'watched') showCatalogFavorites();
+  });
   document.querySelectorAll('.verdict-button').forEach(button => button.onclick = () => {
     const item = state.catalogFavorites.get(button.dataset.item);
     if (!item) return;
