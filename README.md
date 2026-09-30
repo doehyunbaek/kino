@@ -9,7 +9,15 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000/kino/. `/kino` redirects to `/kino/` so relative asset and API URLs stay under the app prefix. Unknown routes return 404.
+
+To serve at the root instead, run `BASE_PATH=/ npm start`. Other prefixes are supported, for example `BASE_PATH=/apps/kino npm start`.
+
+## Cloudflare Tunnel and Access
+
+For `https://doehyunbaek.com/kino/`, forward requests to `http://localhost:3000` **without stripping `/kino`**. Assets and API endpoints are also under `/kino/`. If the domain hosts another site, route only `/kino` and its descendants to this tunnel origin and preserve the existing site's routing.
+
+Configure Cloudflare Access to protect both `/kino` and `/kino/*`, with an allow policy for your email addresses. This code change does not configure the tunnel or Access itself.
 
 ## TMDB catalogue tab
 

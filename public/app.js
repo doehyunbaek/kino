@@ -164,7 +164,7 @@ async function toggleFavorite(film, button) {
   } else {
     button.disabled = true;
     try {
-      const response = await fetch(`/api/catalog/search?q=${encodeURIComponent(film.title)}`);
+      const response = await fetch(`./api/catalog/search?q=${encodeURIComponent(film.title)}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'TMDB-Suche fehlgeschlagen.');
       const title = normalizedTitle(film.title);
@@ -308,7 +308,7 @@ async function loadCredits(id, button) {
   button.disabled = true;
   button.textContent = 'Lädt …';
   try {
-    const response = await fetch(`/api/catalog/person/${id}/credits`);
+    const response = await fetch(`./api/catalog/person/${id}/credits`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Filmografie konnte nicht geladen werden.');
     $('#catalogStatus').textContent = `${data.person.name}: ${data.works.length} Film- und Fernsehwerke`;
@@ -329,7 +329,7 @@ async function runCatalogSearch() {
   $('#catalogResults').classList.remove('saved-table-view');
   $('#catalogResults').innerHTML = '';
   try {
-    const response = await fetch(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch(`./api/catalog/search?q=${encodeURIComponent(query)}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Suche fehlgeschlagen.');
     status.textContent = data.results.length ? `${data.results.length} Ergebnisse für „${query}“` : `Keine Ergebnisse für „${query}“`;
@@ -366,7 +366,7 @@ async function init() {
   $('#ovToggle').classList.toggle('active', state.ovOnly);
   $('#ovToggle').setAttribute('aria-pressed', String(state.ovOnly));
   try {
-    const response = await fetch('/api/showings'); if (!response.ok) throw new Error();
+    const response = await fetch('./api/showings'); if (!response.ok) throw new Error();
     state.data = await response.json();
     renderCinemas(); renderMovies();
     const status = $('#status');

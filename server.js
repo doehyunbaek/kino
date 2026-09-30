@@ -1,8 +1,13 @@
 import express from 'express';
 import * as cheerio from 'cheerio';
 
-const app = express();
+const server = express();
+const app = express.Router();
 const PORT = process.env.PORT || 3000;
+const BASE_PATH = (process.env.BASE_PATH ?? '/kino').replace(/\/+$/, '');
+if (BASE_PATH && !/^\/[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(BASE_PATH)) {
+  throw new Error('BASE_PATH must be / or a path such as /kino');
+}
 const CACHE_MS = 20 * 60 * 1000;
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -315,6 +320,14 @@ app.get('/api/showings', async (_req, res) => {
     res.status(500).json({ error: 'Das Kinoprogramm konnte nicht geladen werden.', detail: error.message });
   }
 });
-app.use(express.static('public'));
-app.get('*', (_req, res) => res.sendFile(new URL('./public/index.html', import.meta.url).pathname));
-app.listen(PORT, () => console.log(`Stuttgart im Kino: http://localhost:${PORT}`));
+app.use(express.static(new URL('./public/', import.meta.url).pathname));
+// Relative browser URLs require a trailing slash at the app's entry point.
+if (BASE_PATH) {
+  server.use((req, res, next) => {
+    if (req.path !== BASE_PATH) return next();
+    const query = req.originalUrl.slice(req.path.length);
+    res.redirect(308, `${BASE_PATH}/${query}`);
+  });
+}
+server.use(BASE_PATH || '/', app);
+server.listen(PORT, () => console.log(`Stuttgart im Kino: http://localhost:${PORT}${BASE_PATH}/`));
