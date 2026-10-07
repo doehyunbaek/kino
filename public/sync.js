@@ -1,3 +1,5 @@
+import { validFavorite } from './watchlist.js';
+
 const SYNC_UPDATED_AT_KEY = 'tmdb-favorites-updated-at';
 
 export function createWatchlistSync({ getItems, applyItems, onStatus }) {
@@ -53,7 +55,7 @@ export function createWatchlistSync({ getItems, applyItems, onStatus }) {
   }
 
   function validItems(items) {
-    return (Array.isArray(items) ? items : []).filter(item => item && Number.isFinite(Number(item.id)) && ['movie', 'tv'].includes(item.mediaType));
+    return (Array.isArray(items) ? items : []).filter(validFavorite);
   }
 
   function mergeItems(local, remote) {
